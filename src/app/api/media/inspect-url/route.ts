@@ -1,27 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { UrlInspectSchema } from "@/lib/validation/schemas";
+import { validateRemoteMediaUrl } from "@/lib/services/url-validator";
 import { inspectRemoteMediaUrl } from "@/lib/media/remote-fetcher";
-
+import { handleApiError, parseJsonBodyWithLimit, MediaError } from "@/lib/services/error-handler";
+import { enforceRateLimit } from "@/lib/services/rate-limiter";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const parsed = UrlInspectSchema.safeParse(body);
+    const rlHeaders = await enforceRateLimit(req, "analyze");
+    const body = await parseJsonBodyWithLimit<{ url?: string }>(req, 64 * 1024);
+    const url = body?.url;
 
-    if (!parsed.success) {
-      const errorMsg = parsed.error.issues[0]?.message || "Invalid URL request.";
-      return NextResponse.json({ error: errorMsg }, { status: 400 });
+    if (!url) {
+      throw new MediaError("Missing URL in request body.", 400, "BAD_REQUEST");
     }
 
-    const info = await inspectRemoteMediaUrl(parsed.data.url);
+    // Validate URL against scheme, SSRF, and provider allowlist
+    await validateRemoteMediaUrl(url);
 
-    return NextResponse.json({
-      success: true,
-      info,
-    });
+    const info = await inspectRemoteMediaUrl(url);
+
+    return NextResponse.json(
+      {
+        success: true,
+        info,
+      },
+      { headers: rlHeaders }
+    );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to inspect remote URL.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return handleApiError(error);
   }
 }

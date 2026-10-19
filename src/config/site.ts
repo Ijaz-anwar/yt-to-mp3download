@@ -1,47 +1,58 @@
+const rawSiteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "https://medianest.app";
+
+// Ensure canonical production origin has no trailing slash
+export const CANONICAL_ORIGIN = rawSiteUrl.replace(/\/+$/, "");
+
+/**
+ * Returns an absolute canonical URL for a given path
+ */
+export function getCanonicalUrl(path = "/"): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (cleanPath === "/") {
+    return CANONICAL_ORIGIN;
+  }
+  return `${CANONICAL_ORIGIN}${cleanPath.replace(/\/+$/, "")}`;
+}
+
 export const SITE_CONFIG = {
   name: "MediaNest",
   shortName: "MediaNest",
-  tagline: "High-Performance Media Converter & Utility",
+  tagline: "YouTube to MP3 & MP4 Downloader",
   description:
-    "Convert, optimize, inspect, and extract audio or video from your authorized media files and permitted direct streams with high fidelity and zero tracking.",
-  url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    "Paste any YouTube video URL to convert and download high-quality MP3 audio or MP4 video instantly.",
+  url: CANONICAL_ORIGIN,
   links: {
     github: "https://github.com",
-    docs: "/docs",
+    home: "/",
+    howItWorks: "/how-it-works",
+    faq: "/faq",
     privacy: "/privacy",
     terms: "/terms",
+    contact: "/contact",
   },
   maxUploadSizeBytes: (Number(process.env.MAX_UPLOAD_SIZE_MB) || 250) * 1024 * 1024,
   maxRemoteSizeBytes: (Number(process.env.MAX_REMOTE_DOWNLOAD_SIZE_MB) || 200) * 1024 * 1024,
   supportedFormats: {
     audio: [
-      { id: "mp3", name: "MP3 Audio", ext: ".mp3", mime: "audio/mpeg", description: "Universal standard compressed audio" },
-      { id: "wav", name: "WAV Audio", ext: ".wav", mime: "audio/wav", description: "Uncompressed lossless studio fidelity" },
-      { id: "aac", name: "AAC Audio", ext: ".aac", mime: "audio/aac", description: "High-efficiency Apple/mobile audio" },
-      { id: "ogg", name: "OGG Vorbis", ext: ".ogg", mime: "audio/ogg", description: "Open source web-optimized audio" },
-      { id: "flac", name: "FLAC Audio", ext: ".flac", mime: "audio/flac", description: "Lossless compressed master audio" },
-      { id: "m4a", name: "M4A Audio", ext: ".m4a", mime: "audio/mp4", description: "MPEG-4 Audio container" },
+      { id: "mp3", name: "MP3 Audio", ext: ".mp3", mime: "audio/mpeg", description: "320 kbps High-Quality Audio" },
     ],
     video: [
-      { id: "mp4", name: "MP4 Video", ext: ".mp4", mime: "video/mp4", description: "H.264 / AAC standard compatible container" },
-      { id: "webm", name: "WebM Video", ext: ".webm", mime: "video/webm", description: "VP8/VP9 open modern web video" },
-      { id: "mkv", name: "MKV Video", ext: ".mkv", mime: "video/x-matroska", description: "Matroska flexible multimedia container" },
+      { id: "mp4", name: "MP4 Video", ext: ".mp4", mime: "video/mp4", description: "Full HD 1080p / 720p Video" },
     ],
   },
   bitratePresets: [
-    { value: "128k", label: "128 kbps (Standard)" },
-    { value: "192k", label: "192 kbps (High Quality)" },
-    { value: "256k", label: "256 kbps (Very High)" },
-    { value: "320k", label: "320 kbps (Maximum / Studio)" },
+    { value: "320k", label: "320 kbps (High Quality)" },
   ],
   sampleRatePresets: [
-    { value: 44100, label: "44.1 kHz (CD Audio)" },
-    { value: 48000, label: "48.0 kHz (Studio Video standard)" },
+    { value: 44100, label: "44.1 kHz" },
+    { value: 48000, label: "48.0 kHz" },
   ],
   resolutionPresets: [
-    { value: "original", label: "Original Resolution" },
-    { value: "1080p", label: "1080p Full HD (1920×1080)" },
-    { value: "720p", label: "720p HD (1280×720)" },
-    { value: "480p", label: "480p SD (854×480)" },
+    { value: "original", label: "Original HD Resolution" },
+    { value: "1080p", label: "1080p Full HD" },
+    { value: "720p", label: "720p HD" },
   ],
 };

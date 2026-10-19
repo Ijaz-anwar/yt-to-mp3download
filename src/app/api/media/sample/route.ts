@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { probeMediaFile, getFfmpegPath } from "@/lib/media/ffmpeg-runner";
-import { createTempOutputPath, registerConvertedMedia } from "@/lib/media/storage";
+import { registerOutputFile, allocateOutputPath } from "@/lib/services/temp-storage";
+import { getMediaCapabilities } from "@/lib/services/format-capabilities";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
     const filename = isVideo ? "sample-demo-pattern.mp4" : "sample-demo-tone.wav";
     const mimeType = isVideo ? "video/mp4" : "audio/wav";
 
-    const { filePath } = createTempOutputPath(ext);
+    const { id, filePath, expiresAt } = allocateOutputPath(ext);
 
     let args: string[];
     if (isVideo) {
@@ -20,11 +21,11 @@ export async function POST(req: NextRequest) {
         "-f",
         "lavfi",
         "-i",
-        "testsrc=duration=4:size=640x360:rate=30",
+        "testsrc=duration=2:size=640x360:rate=30",
         "-f",
         "lavfi",
         "-i",
-        "sine=frequency=440:duration=4",
+        "sine=frequency=440:duration=2",
         "-c:v",
         "libx264",
         "-pix_fmt",
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
         "-f",
         "lavfi",
         "-i",
-        "sine=frequency=528:duration=5",
+        "sine=frequency=528:duration=2",
         "-c:a",
         "pcm_s16le",
         "-y",
@@ -54,11 +55,12 @@ export async function POST(req: NextRequest) {
       });
     });
 
-    const record = await registerConvertedMedia(
+    const record = await registerOutputFile(
+      id,
       filePath,
       filename,
-      ext,
-      mimeType
+      mimeType,
+      expiresAt
     );
 
     const metadata = await probeMediaFile(
@@ -66,6 +68,8 @@ export async function POST(req: NextRequest) {
       record.id,
       record.originalName
     );
+
+    const capabilities = getMediaCapabilities(metadata);
 
     return NextResponse.json({
       success: true,
@@ -77,6 +81,7 @@ export async function POST(req: NextRequest) {
         mimeType: record.mimeType,
       },
       metadata,
+      capabilities,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to generate demo sample.";

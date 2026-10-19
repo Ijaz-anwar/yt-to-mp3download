@@ -28,9 +28,14 @@ export interface StoredMediaRecord {
   isConverted?: boolean;
 }
 
-// In-memory registry for fast lookup and metadata mapping
-// (Maps file ID -> file record, avoiding path exposure to clients)
-const mediaRegistry = new Map<string, StoredMediaRecord>();
+const globalForMediaRegistry = globalThis as unknown as {
+  mediaRegistry?: Map<string, StoredMediaRecord>;
+};
+
+// In-memory registry for fast lookup and metadata mapping (attached to globalThis for persistence)
+export const mediaRegistry: Map<string, StoredMediaRecord> =
+  globalForMediaRegistry.mediaRegistry ?? new Map<string, StoredMediaRecord>();
+globalForMediaRegistry.mediaRegistry = mediaRegistry;
 
 /**
  * Save an uploaded buffer or stream into a controlled temp storage location
@@ -45,10 +50,10 @@ export async function saveMediaBuffer(
   const safeBase = sanitizeFilename(originalFilename, "upload");
   const ext = path.extname(safeBase) || ".bin";
   const storedFilename = `${id}${ext}`;
-  const filePath = path.join(dir, storedFilename);
+  const filePath = path.join(/* turbopackIgnore: true */ dir, storedFilename);
 
   await fs.promises.writeFile(filePath, buffer);
-  const stats = await fs.promises.stat(filePath);
+  const stats = await fs.promises.stat(/* turbopackIgnore: true */ filePath);
 
   const record: StoredMediaRecord = {
     id,

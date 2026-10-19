@@ -1,25 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import fs from "fs";
 import { Readable } from "stream";
 import { getMediaRecord } from "@/lib/media/storage";
-
+import { assertSafeId } from "@/lib/services/temp-storage";
+import { enforceRateLimit } from "@/lib/services/rate-limiter";
+import { handleApiError, MediaError } from "@/lib/services/error-handler";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
-
-    if (!id) {
-      return NextResponse.json({ error: "Missing file ID parameter." }, { status: 400 });
-    }
+    assertSafeId(id);
+    const rlHeaders = await enforceRateLimit(req, "download", id);
 
     const record = await getMediaRecord(id);
     if (!record || !fs.existsSync(record.filePath)) {
-      return NextResponse.json(
-        { error: "The requested file was not found or has expired." },
-        { status: 404 }
+      throw new MediaError(
+        "The requested file was not found or has expired.",
+        404,
+        "FILE_NOT_FOUND"
       );
     }
 
@@ -29,19 +30,21 @@ export async function GET(
 
     const safeFilename = record.originalName.replace(/[^\w.-]/g, "_");
 
+    const responseHeaders = new Headers({
+      "Content-Type": record.mimeType || "application/octet-stream",
+      "Content-Length": stat.size.toString(),
+      "Content-Disposition": `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(
+        record.originalName
+      )}`,
+      "Cache-Control": "private, max-age=3600",
+    });
+    rlHeaders.forEach((val, key) => responseHeaders.set(key, val));
+
     return new Response(webStream as unknown as BodyInit, {
       status: 200,
-      headers: {
-        "Content-Type": record.mimeType || "application/octet-stream",
-        "Content-Length": stat.size.toString(),
-        "Content-Disposition": `attachment; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(
-          record.originalName
-        )}`,
-        "Cache-Control": "private, max-age=3600",
-      },
+      headers: responseHeaders,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to serve download.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err);
   }
 }

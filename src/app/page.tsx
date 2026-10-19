@@ -1,5 +1,10 @@
-import { MediaNestApp } from "@/components/MediaNestApp";
+import {
+  getLocalizedPageMetadata,
+  LocalizedHomePage,
+} from "@/components/pages/LocalizedPages";
+
+export const metadata = getLocalizedPageMetadata("en", "home");
 
 export default function HomePage() {
-  return <MediaNestApp />;
+  return <LocalizedHomePage locale="en" />;
 }

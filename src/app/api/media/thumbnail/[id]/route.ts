@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import fs from "fs";
 import { Readable } from "stream";
 import { getThumbnailPath } from "@/lib/media/storage";
+import { assertSafeId } from "@/lib/services/temp-storage";
+import { handleApiError, MediaError } from "@/lib/services/error-handler";
 
 export async function GET(
   _req: NextRequest,
@@ -9,13 +11,11 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
-    if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
-      return NextResponse.json({ error: "Invalid thumbnail ID" }, { status: 400 });
-    }
+    assertSafeId(id);
 
     const thumbPath = getThumbnailPath(id);
     if (!fs.existsSync(thumbPath)) {
-      return NextResponse.json({ error: "Thumbnail not found" }, { status: 404 });
+      throw new MediaError("Thumbnail not found.", 404, "NOT_FOUND");
     }
 
     const stat = await fs.promises.stat(thumbPath);
@@ -31,7 +31,6 @@ export async function GET(
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Error serving thumbnail";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err);
   }
 }

@@ -6,31 +6,39 @@ import ffprobeStatic from "ffprobe-static";
 import { MediaMetadata } from "../validation/schemas";
 import { getMimeTypeForExt } from "../utils/format";
 import { getThumbnailPath } from "./storage";
+import { MediaError } from "../services/error-handler";
 
-// Robust binary path resolution for ESM and CJS bundlers
+// Robust binary path resolution supporting custom environment variables, static modules, and system PATH
 export function getFfmpegPath(): string {
-  if (typeof ffmpegStatic === "string") return ffmpegStatic;
+  if (process.env.FFMPEG_PATH && process.env.FFMPEG_PATH.trim()) {
+    return process.env.FFMPEG_PATH.trim();
+  }
+  if (typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) return ffmpegStatic;
   const anyFfmpeg = ffmpegStatic as unknown as Record<string, unknown> | null;
-  if (anyFfmpeg && typeof anyFfmpeg.default === "string") {
+  if (anyFfmpeg && typeof anyFfmpeg.default === "string" && fs.existsSync(anyFfmpeg.default)) {
     return anyFfmpeg.default;
   }
-  if (anyFfmpeg && typeof anyFfmpeg.path === "string") {
+  if (anyFfmpeg && typeof anyFfmpeg.path === "string" && fs.existsSync(anyFfmpeg.path)) {
     return anyFfmpeg.path;
   }
   return "ffmpeg";
 }
 
 export function getFfprobePath(): string {
-  if (typeof ffprobeStatic === "string") return ffprobeStatic;
+  if (process.env.FFPROBE_PATH && process.env.FFPROBE_PATH.trim()) {
+    return process.env.FFPROBE_PATH.trim();
+  }
+  if (typeof ffprobeStatic === "string" && fs.existsSync(ffprobeStatic)) return ffprobeStatic;
   const anyFfprobe = ffprobeStatic as unknown as Record<string, unknown> | null;
-  if (anyFfprobe && typeof anyFfprobe.path === "string") {
+  if (anyFfprobe && typeof anyFfprobe.path === "string" && fs.existsSync(anyFfprobe.path)) {
     return anyFfprobe.path;
   }
   if (
     anyFfprobe &&
     typeof anyFfprobe.default === "object" &&
     anyFfprobe.default !== null &&
-    typeof (anyFfprobe.default as Record<string, unknown>).path === "string"
+    typeof (anyFfprobe.default as Record<string, unknown>).path === "string" &&
+    fs.existsSync((anyFfprobe.default as Record<string, unknown>).path as string)
   ) {
     return (anyFfprobe.default as Record<string, unknown>).path as string;
   }
@@ -113,6 +121,40 @@ export async function verifyMediaEngine(): Promise<{
 }
 
 /**
+ * Asserts that both FFmpeg and FFprobe binaries are operational on the host system.
+ * Throws a clear configuration error if either is missing.
+ */
+export async function assertBinariesInstalled(): Promise<{
+  ffmpegPath: string;
+  ffprobePath: string;
+  ffmpegVersion: string;
+  ffprobeVersion: string;
+}> {
+  const status = await verifyMediaEngine();
+  if (!status.ffmpeg || !status.ffprobe) {
+    const missing: string[] = [];
+    if (!status.ffmpeg) missing.push("FFmpeg");
+    if (!status.ffprobe) missing.push("FFprobe");
+
+    throw new MediaError(
+      `Required media processing binary is missing or cannot be executed: ${missing.join(" and ")}. ` +
+        `Please ensure FFmpeg is installed on your system (Windows: 'winget install Gyan.FFmpeg' or 'choco install ffmpeg'; ` +
+        `Linux: 'sudo apt install ffmpeg' or 'sudo dnf install ffmpeg'), ` +
+        `or configure exact executable paths using FFMPEG_PATH and FFPROBE_PATH environment variables.`,
+      503,
+      "FFMPEG_NOT_CONFIGURED"
+    );
+  }
+
+  return {
+    ffmpegPath: getFfmpegPath(),
+    ffprobePath: getFfprobePath(),
+    ffmpegVersion: status.ffmpegVersion || "unknown",
+    ffprobeVersion: status.ffprobeVersion || "unknown",
+  };
+}
+
+/**
  * Extract a representative video frame as a JPEG thumbnail
  */
 export async function generateVideoThumbnail(
@@ -138,7 +180,7 @@ export async function generateVideoThumbnail(
   ];
 
   return new Promise((resolve) => {
-    execFile(getFfmpegPath(), args, (err) => {
+    execFile(/* turbopackIgnore: true */ getFfmpegPath(), args, (err) => {
       if (err || !fs.existsSync(thumbnailPath)) {
         resolve(false);
       } else {
@@ -173,7 +215,7 @@ export async function probeMediaFile(
       filePath,
     ];
 
-    execFile(getFfprobePath(), args, (err, stdout) => {
+    execFile(/* turbopackIgnore: true */ getFfprobePath(), args, (err, stdout) => {
       if (err) {
         // Fallback: If ffprobe fails (e.g. unknown raw stream), provide basic file info
         const ext = path.extname(originalFilename).replace(/^\./, "");
@@ -387,7 +429,7 @@ export async function convertMediaFile(
 
   return new Promise((resolve, reject) => {
     execFile(
-      getFfmpegPath(),
+      /* turbopackIgnore: true */ getFfmpegPath(),
       args,
       { maxBuffer: 10 * 1024 * 1024 },
       (err, _stdout, stderr) => {

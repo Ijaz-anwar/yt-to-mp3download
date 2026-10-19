@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import { Readable } from "stream";
 import { getMediaRecord } from "@/lib/media/storage";
-
+import { getFileRecord, assertSafeId } from "@/lib/services/temp-storage";
+import { getJobById } from "@/lib/services/job-manager";
+import { handleApiError } from "@/lib/services/error-handler";
+import { enforceRateLimit } from "@/lib/services/rate-limiter";
 
 export async function GET(
   req: NextRequest,
@@ -10,12 +13,41 @@ export async function GET(
 ) {
   try {
     const { id } = await context.params;
+    assertSafeId(id);
+    await enforceRateLimit(req, "download", id);
 
-    if (!id) {
-      return NextResponse.json({ error: "Missing file ID." }, { status: 400 });
+    let record = await getMediaRecord(id);
+    if (!record) {
+      const tempRec = await getFileRecord(id);
+      if (tempRec) {
+        record = {
+          id: tempRec.id,
+          originalName: tempRec.originalName,
+          filename: tempRec.filename,
+          filePath: tempRec.filePath,
+          mimeType: tempRec.mimeType,
+          size: tempRec.size,
+          createdAt: tempRec.createdAt,
+        };
+      } else {
+        const job = await getJobById(id);
+        if (job?.outputFileId) {
+          const jobFile = await getFileRecord(job.outputFileId);
+          if (jobFile) {
+            record = {
+              id: jobFile.id,
+              originalName: jobFile.originalName,
+              filename: jobFile.filename,
+              filePath: jobFile.filePath,
+              mimeType: jobFile.mimeType,
+              size: jobFile.size,
+              createdAt: jobFile.createdAt,
+            };
+          }
+        }
+      }
     }
 
-    const record = await getMediaRecord(id);
     if (!record || !fs.existsSync(record.filePath)) {
       return NextResponse.json({ error: "Media file not found." }, { status: 404 });
     }
@@ -67,7 +99,6 @@ export async function GET(
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to stream preview.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err);
   }
 }

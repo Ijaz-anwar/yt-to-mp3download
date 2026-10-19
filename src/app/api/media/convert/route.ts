@@ -9,17 +9,19 @@ import {
 import { convertMediaFile, probeMediaFile } from "@/lib/media/ffmpeg-runner";
 import { downloadRemoteMedia } from "@/lib/media/remote-fetcher";
 import { getMimeTypeForExt } from "@/lib/utils/format";
-
+import { handleApiError, parseJsonBodyWithLimit, MediaError } from "@/lib/services/error-handler";
+import { enforceRateLimit } from "@/lib/services/rate-limiter";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rlHeaders = await enforceRateLimit(req, "job_create");
+    const body = await parseJsonBodyWithLimit<unknown>(req, 64 * 1024);
     const parsed = ConvertRequestSchema.safeParse(body);
 
     if (!parsed.success) {
       const errorMsg =
         parsed.error.issues[0]?.message || "Invalid conversion options.";
-      return NextResponse.json({ error: errorMsg }, { status: 400 });
+      throw new MediaError(errorMsg, 400, "BAD_REQUEST");
     }
 
     const {
@@ -98,22 +100,23 @@ export async function POST(req: NextRequest) {
       convertedRecord.originalName
     );
 
-    return NextResponse.json({
-      success: true,
-      downloadUrl: `/api/media/download/${convertedRecord.id}`,
-      previewUrl: `/api/media/preview/${convertedRecord.id}`,
-      result: {
-        id: convertedRecord.id,
-        filename: convertedRecord.originalName,
-        size: convertedRecord.size,
-        mimeType: convertedRecord.mimeType,
-        timeMs: conversionResult.timeMs,
-        metadata: outputMetadata,
+    return NextResponse.json(
+      {
+        success: true,
+        downloadUrl: `/api/media/download/${convertedRecord.id}`,
+        previewUrl: `/api/media/preview/${convertedRecord.id}`,
+        result: {
+          id: convertedRecord.id,
+          filename: convertedRecord.originalName,
+          size: convertedRecord.size,
+          mimeType: convertedRecord.mimeType,
+          timeMs: conversionResult.timeMs,
+          metadata: outputMetadata,
+        },
       },
-    });
+      { headers: rlHeaders }
+    );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Media conversion failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(error);
   }
 }
