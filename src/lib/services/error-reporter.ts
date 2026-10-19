@@ -10,6 +10,24 @@ export function setupGracefulShutdown(): void {
   if (shutdownInitialized) return;
   shutdownInitialized = true;
 
+  // Schedule periodic cleanup of expired temporary media files and job records
+  const intervalMinutes =
+    parseInt(process.env.MEDIA_CLEANUP_INTERVAL_MINUTES || "", 10) || 15;
+  const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
+
+  const cleanupTimer = setInterval(async () => {
+    try {
+      const { runRetentionCleanup } = await import("./job-manager");
+      await runRetentionCleanup(true);
+    } catch {
+      // Ignore background cleanup errors
+    }
+  }, intervalMs);
+
+  if (typeof cleanupTimer.unref === "function") {
+    cleanupTimer.unref();
+  }
+
   const handleTermination = async (signal: string) => {
     logger.info("server_shutdown_signal_received", { signal });
     try {

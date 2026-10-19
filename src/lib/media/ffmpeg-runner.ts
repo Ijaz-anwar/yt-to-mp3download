@@ -21,6 +21,10 @@ export function getFfmpegPath(): string {
   if (anyFfmpeg && typeof anyFfmpeg.path === "string" && fs.existsSync(anyFfmpeg.path)) {
     return anyFfmpeg.path;
   }
+  const bundledWin = path.resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe");
+  if (fs.existsSync(bundledWin)) return bundledWin;
+  const bundledUnix = path.resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg");
+  if (fs.existsSync(bundledUnix)) return bundledUnix;
   return "ffmpeg";
 }
 
@@ -42,6 +46,16 @@ export function getFfprobePath(): string {
   ) {
     return (anyFfprobe.default as Record<string, unknown>).path as string;
   }
+  const bundledProbe = path.resolve(
+    process.cwd(),
+    "node_modules",
+    "ffprobe-static",
+    "bin",
+    process.platform,
+    process.arch,
+    process.platform === "win32" ? "ffprobe.exe" : "ffprobe"
+  );
+  if (fs.existsSync(bundledProbe)) return bundledProbe;
   return "ffprobe";
 }
 

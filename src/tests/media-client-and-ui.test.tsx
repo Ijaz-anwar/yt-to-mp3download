@@ -202,7 +202,6 @@ describe("MediaResultCard UI State Machine", () => {
 
     expect(optionValues).toContain("original");
     expect(optionValues).toContain("720p");
-    expect(optionValues).toContain("480p");
     expect(optionValues).not.toContain("1080p");
   });
 

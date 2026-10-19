@@ -228,10 +228,11 @@ export function executeTranscode(
     const ffmpegBin = getFfmpegPath();
 
     // Verify configured binary path exists if custom path was specified
-    if (process.env.FFMPEG_PATH && !fs.existsSync(process.env.FFMPEG_PATH)) {
+    const customFfmpegPath = process.env.FFMPEG_PATH?.trim();
+    if (customFfmpegPath && !fs.existsSync(customFfmpegPath)) {
       return reject(
         new MediaError(
-          `Configured FFMPEG_PATH "${process.env.FFMPEG_PATH}" does not exist on disk. ` +
+          `Configured FFMPEG_PATH "${customFfmpegPath}" does not exist on disk. ` +
             `Please specify a valid binary path or install FFmpeg.`,
           503,
           "FFMPEG_NOT_CONFIGURED"

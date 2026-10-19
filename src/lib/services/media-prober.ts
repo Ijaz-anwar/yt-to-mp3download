@@ -102,10 +102,11 @@ export async function probeMedia(
 
   return new Promise((resolve, reject) => {
     const ffprobeBin = getFfprobePath();
-    if (process.env.FFPROBE_PATH && !fs.existsSync(process.env.FFPROBE_PATH)) {
+    const customFfprobePath = process.env.FFPROBE_PATH?.trim();
+    if (customFfprobePath && !fs.existsSync(customFfprobePath)) {
       return reject(
         new MediaError(
-          `Configured FFPROBE_PATH "${process.env.FFPROBE_PATH}" does not exist on disk. Please verify your binary configuration.`,
+          `Configured FFPROBE_PATH "${customFfprobePath}" does not exist on disk. Please verify your binary configuration.`,
           503,
           "FFMPEG_NOT_CONFIGURED"
         )

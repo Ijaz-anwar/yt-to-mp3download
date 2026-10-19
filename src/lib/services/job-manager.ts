@@ -2,7 +2,13 @@ import fs from "fs";
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { executeTranscode, TranscodeOptions } from "./ffmpeg-service";
-import { getFileRecord, allocateOutputPath, registerOutputFile, deleteStoredFile } from "./temp-storage";
+import {
+  getFileRecord,
+  allocateOutputPath,
+  registerOutputFile,
+  deleteStoredFile,
+  purgeExpiredFiles,
+} from "./temp-storage";
 import { MediaError, logger } from "./error-handler";
 import { getMimeTypeForExt } from "../utils/format";
 import { MediaMetadata } from "../validation/schemas";
@@ -226,6 +232,7 @@ const globalForJobs = globalThis as unknown as {
   jobStore?: JobStore;
   activeExecutions?: Map<string, () => void>;
   runningJobIds?: Set<string>;
+  lastRetentionSweepAt?: number;
 };
 
 // Global job store instance (attached to globalThis for persistence across Next.js route bundles)
@@ -241,6 +248,43 @@ globalForJobs.activeExecutions = activeExecutions;
 const runningJobIds: Set<string> =
   globalForJobs.runningJobIds ?? new Set<string>();
 globalForJobs.runningJobIds = runningJobIds;
+
+/**
+ * Purges expired jobs and temporary media files according to MEDIA_JOB_TTL_MS (default 15 minutes).
+ */
+export async function runRetentionCleanup(force = false): Promise<{
+  purgedJobs: number;
+  purgedFiles: number;
+}> {
+  const now = Date.now();
+  const minSweepIntervalMs = 60 * 1000; // debounce to at most once per minute unless forced
+  if (
+    !force &&
+    globalForJobs.lastRetentionSweepAt &&
+    now - globalForJobs.lastRetentionSweepAt < minSweepIntervalMs
+  ) {
+    return { purgedJobs: 0, purgedFiles: 0 };
+  }
+  globalForJobs.lastRetentionSweepAt = now;
+
+  const ttlMs = parseInt(process.env.MEDIA_JOB_TTL_MS || "", 10) || 15 * 60 * 1000;
+  let purgedJobs = 0;
+  let purgedFiles = 0;
+
+  try {
+    purgedJobs = await jobStore.purgeExpired(ttlMs);
+  } catch (err) {
+    logger.error("job_retention_cleanup_error", err);
+  }
+
+  try {
+    purgedFiles = await purgeExpiredFiles(ttlMs);
+  } catch (err) {
+    logger.error("file_retention_cleanup_error", err);
+  }
+
+  return { purgedJobs, purgedFiles };
+}
 
 /**
  * Dispatches queued jobs up to the concurrency limit
@@ -287,6 +331,9 @@ export async function dispatchNextJobs(): Promise<void> {
  * Creates and enqueues a media transcoding job
  */
 export async function createAndStartJob(params: CreateJobParams): Promise<MediaJob> {
+  // Run non-blocking retention cleanup of expired jobs and temporary files
+  runRetentionCleanup(false).catch(() => {});
+
   if (params.sourceFileId) {
     const sourceRecord = await getFileRecord(params.sourceFileId);
     if (!sourceRecord) {

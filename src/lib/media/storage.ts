@@ -4,15 +4,19 @@ import { v4 as uuidv4 } from "uuid";
 import { sanitizeFilename } from "../utils/format";
 
 // Directory where temporary uploads and converted files are staged
-const TEMP_DIR = path.resolve(
-  /* turbopackIgnore: true */ process.cwd(),
-  ".temp_media"
-);
+const rawTempDir = process.env.TEMP_MEDIA_DIR?.trim() || ".temp_media";
+const TEMP_DIR = path.isAbsolute(rawTempDir)
+  ? rawTempDir
+  : path.resolve(/* turbopackIgnore: true */ process.cwd(), rawTempDir);
 
 // Ensure directory exists at process startup
 function ensureTempDir(): string {
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(TEMP_DIR)) {
+      fs.mkdirSync(TEMP_DIR, { recursive: true });
+    }
+  } catch {
+    // Handled gracefully by storage operations
   }
   return TEMP_DIR;
 }

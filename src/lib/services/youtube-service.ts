@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { spawn } from "child_process";
 import { MediaError, logger } from "./error-handler";
+import { getFfmpegPath } from "../media/ffmpeg-runner";
 
 export interface YouTubeMetadata {
   id: string;
@@ -82,11 +83,58 @@ export function isYouTubeUrl(rawUrl: string): boolean {
 }
 
 /**
- * Resolves the path to the bundled or system FFmpeg binary.
+ * Resolves the Python executable path.
+ * Supports PYTHON_PATH environment override; defaults to `python3` on Linux/Unix and `python` on Windows.
+ */
+export function getPythonBinaryPath(platform: NodeJS.Platform = process.platform): string {
+  const configured = process.env.PYTHON_PATH?.trim();
+  if (configured) {
+    return configured;
+  }
+  return platform === "win32" ? "python" : "python3";
+}
+
+/**
+ * Resolves an explicit standalone yt-dlp binary path if YT_DLP_PATH is configured.
+ */
+export function getYtDlpBinaryPath(): string | null {
+  const configured = process.env.YT_DLP_PATH?.trim();
+  return configured ? configured : null;
+}
+
+/**
+ * Resolves the command and arguments used to invoke yt-dlp.
+ * - If YT_DLP_PATH is set, invokes that executable directly with ytDlpArgs.
+ * - Otherwise invokes getPythonBinaryPath() with ["-u", "-m", "yt_dlp", ...ytDlpArgs].
+ */
+export function resolveYtDlpCommand(
+  ytDlpArgs: string[],
+  platform: NodeJS.Platform = process.platform
+): { command: string; args: string[] } {
+  const customYtDlp = getYtDlpBinaryPath();
+  if (customYtDlp) {
+    return {
+      command: customYtDlp,
+      args: [...ytDlpArgs],
+    };
+  }
+  return {
+    command: getPythonBinaryPath(platform),
+    args: ["-u", "-m", "yt_dlp", ...ytDlpArgs],
+  };
+}
+
+/**
+ * Resolves the path to the configured, bundled (ffmpeg-static), or system FFmpeg binary.
  */
 export function getFfmpegBinaryPath(): string {
-  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
-    return process.env.FFMPEG_PATH;
+  const customFfmpeg = process.env.FFMPEG_PATH?.trim();
+  if (customFfmpeg) {
+    return customFfmpeg;
+  }
+  const resolvedRunnerPath = getFfmpegPath();
+  if (resolvedRunnerPath && resolvedRunnerPath !== "ffmpeg" && fs.existsSync(resolvedRunnerPath)) {
+    return resolvedRunnerPath;
   }
   const bundledWindows = path.resolve(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg.exe");
   if (fs.existsSync(bundledWindows)) {
@@ -118,10 +166,7 @@ export async function getYouTubeMetadata(
   }
 
   return new Promise((resolve, reject) => {
-    const args = [
-      "-u",
-      "-m",
-      "yt_dlp",
+    const ytDlpArgs = [
       "--dump-json",
       "--skip-download",
       "--no-warnings",
@@ -129,6 +174,7 @@ export async function getYouTubeMetadata(
       "--no-check-certificates",
       url.trim(),
     ];
+    const { command, args } = resolveYtDlpCommand(ytDlpArgs);
 
     let settled = false;
     let stdoutBuffer = "";
@@ -142,7 +188,7 @@ export async function getYouTubeMetadata(
       }
     }, timeoutMs);
 
-    const child = spawn("python", args, {
+    const child = spawn(command, args, {
       windowsHide: true,
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
     });
@@ -222,12 +268,28 @@ export function downloadYouTubeMedia(
   }
 
   const tempBase = path.join(dir, `yt_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const tempPrefix = path.basename(tempBase);
   const tempPattern = `${tempBase}.%(ext)s`;
 
+  const cleanupTempArtifacts = () => {
+    try {
+      if (!fs.existsSync(dir)) return;
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (f.startsWith(tempPrefix)) {
+          try {
+            fs.unlinkSync(path.join(dir, f));
+          } catch {
+            // ignore unlink errors
+          }
+        }
+      }
+    } catch {
+      // ignore directory errors
+    }
+  };
+
   const commonFastArgs = [
-    "-u",
-    "-m",
-    "yt_dlp",
     "--newline",
     "--progress",
     "--no-warnings",
@@ -241,10 +303,10 @@ export function downloadYouTubeMedia(
     "10M",
   ];
 
-  let args: string[];
+  let ytDlpArgs: string[];
 
   if (targetFormat === "mp3") {
-    args = [
+    ytDlpArgs = [
       ...commonFastArgs,
       "-f",
       "ba[ext=m4a]/ba/b",
@@ -264,7 +326,7 @@ export function downloadYouTubeMedia(
   } else {
     // Prefer pre-merged progressive MP4 (up to 720p) for instant 0-merge download,
     // or fallback to <=720p H.264 MP4 + M4A stream copy so even 30-min videos finish quickly
-    args = [
+    ytDlpArgs = [
       ...commonFastArgs,
       "-f",
       "b[ext=mp4][height<=720]/bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4]/bv*[height<=720]+ba/b",
@@ -278,6 +340,8 @@ export function downloadYouTubeMedia(
     ];
   }
 
+  const { command, args } = resolveYtDlpCommand(ytDlpArgs);
+
   let child: ReturnType<typeof spawn> | null = null;
   let isCancelled = false;
 
@@ -290,6 +354,7 @@ export function downloadYouTubeMedia(
         // ignore
       }
     }
+    cleanupTempArtifacts();
   };
 
   const parseProgressChunk = (text: string) => {
@@ -309,7 +374,7 @@ export function downloadYouTubeMedia(
   };
 
   const promise = new Promise<YouTubeDownloadResult>((resolve, reject) => {
-    child = spawn("python", args, {
+    child = spawn(command, args, {
       windowsHide: true,
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
     });
@@ -327,6 +392,7 @@ export function downloadYouTubeMedia(
     });
 
     child.on("error", (err) => {
+      cleanupTempArtifacts();
       if (isCancelled) {
         return reject(new MediaError("YouTube download was cancelled.", 499, "JOB_CANCELLED"));
       }
@@ -335,10 +401,12 @@ export function downloadYouTubeMedia(
 
     child.on("close", (code) => {
       if (isCancelled) {
+        cleanupTempArtifacts();
         return reject(new MediaError("YouTube download was cancelled.", 499, "JOB_CANCELLED"));
       }
 
       if (code !== 0) {
+        cleanupTempArtifacts();
         logger.error("youtube_download_failed", new Error(stderrBuffer), { url, targetFormat, code });
         return reject(
           new MediaError(
@@ -355,7 +423,6 @@ export function downloadYouTubeMedia(
 
       try {
         const files = fs.readdirSync(dir);
-        const tempPrefix = path.basename(tempBase);
         const generatedFile = files.find(
           (f) => f.startsWith(tempPrefix) && !f.endsWith(".part") && !f.endsWith(".ytdl")
         );

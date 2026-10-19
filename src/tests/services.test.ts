@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   isPrivateIPv4,
   isPrivateIPv6,
@@ -13,8 +13,14 @@ import {
   getMediaCapabilities,
   validateConversionCapabilities,
 } from "@/lib/services/format-capabilities";
-import { MemoryJobStore } from "@/lib/services/job-manager";
+import { MemoryJobStore, runRetentionCleanup } from "@/lib/services/job-manager";
 import { MediaError } from "@/lib/services/error-handler";
+import {
+  getPythonBinaryPath,
+  getYtDlpBinaryPath,
+  resolveYtDlpCommand,
+  getFfmpegBinaryPath,
+} from "@/lib/services/youtube-service";
 
 describe("URL Validator Service", () => {
   it("correctly identifies private and loopback IPv4 addresses", () => {
@@ -290,4 +296,77 @@ describe("Job Manager Service", () => {
     const check = await store.get(job.id);
     expect(check).toBeNull();
   });
+
+  it("executes retention cleanup safely", async () => {
+    const res = await runRetentionCleanup(true);
+    expect(res.purgedJobs).toBeGreaterThanOrEqual(0);
+    expect(res.purgedFiles).toBeGreaterThanOrEqual(0);
+  });
 });
+
+describe("YouTube & FFmpeg Binary Resolution (cPanel Compatibility)", () => {
+  const originalPythonPath = process.env.PYTHON_PATH;
+  const originalYtDlpPath = process.env.YT_DLP_PATH;
+  const originalFfmpegPath = process.env.FFMPEG_PATH;
+
+  afterEach(() => {
+    if (originalPythonPath === undefined) {
+      delete process.env.PYTHON_PATH;
+    } else {
+      process.env.PYTHON_PATH = originalPythonPath;
+    }
+
+    if (originalYtDlpPath === undefined) {
+      delete process.env.YT_DLP_PATH;
+    } else {
+      process.env.YT_DLP_PATH = originalYtDlpPath;
+    }
+
+    if (originalFfmpegPath === undefined) {
+      delete process.env.FFMPEG_PATH;
+    } else {
+      process.env.FFMPEG_PATH = originalFfmpegPath;
+    }
+  });
+
+  it("defaults to python3 on Linux and python on Windows when PYTHON_PATH is not set", () => {
+    delete process.env.PYTHON_PATH;
+    expect(getPythonBinaryPath("linux")).toBe("python3");
+    expect(getPythonBinaryPath("darwin")).toBe("python3");
+    expect(getPythonBinaryPath("win32")).toBe("python");
+  });
+
+  it("uses PYTHON_PATH override when configured", () => {
+    process.env.PYTHON_PATH = " /usr/local/bin/python3.11 ";
+    expect(getPythonBinaryPath("linux")).toBe("/usr/local/bin/python3.11");
+    expect(getPythonBinaryPath("win32")).toBe("/usr/local/bin/python3.11");
+  });
+
+  it("resolves yt-dlp command via python -m yt_dlp when YT_DLP_PATH is not set", () => {
+    delete process.env.YT_DLP_PATH;
+    delete process.env.PYTHON_PATH;
+
+    const linuxCmd = resolveYtDlpCommand(["--dump-json", "https://youtu.be/dQw4w9WgXcQ"], "linux");
+    expect(linuxCmd.command).toBe("python3");
+    expect(linuxCmd.args).toEqual(["-u", "-m", "yt_dlp", "--dump-json", "https://youtu.be/dQw4w9WgXcQ"]);
+
+    const winCmd = resolveYtDlpCommand(["--dump-json", "https://youtu.be/dQw4w9WgXcQ"], "win32");
+    expect(winCmd.command).toBe("python");
+    expect(winCmd.args).toEqual(["-u", "-m", "yt_dlp", "--dump-json", "https://youtu.be/dQw4w9WgXcQ"]);
+  });
+
+  it("resolves standalone yt-dlp binary directly when YT_DLP_PATH is set", () => {
+    process.env.YT_DLP_PATH = " /usr/local/bin/yt-dlp ";
+    expect(getYtDlpBinaryPath()).toBe("/usr/local/bin/yt-dlp");
+
+    const resolved = resolveYtDlpCommand(["--dump-json", "https://youtu.be/dQw4w9WgXcQ"], "linux");
+    expect(resolved.command).toBe("/usr/local/bin/yt-dlp");
+    expect(resolved.args).toEqual(["--dump-json", "https://youtu.be/dQw4w9WgXcQ"]);
+  });
+
+  it("respects FFMPEG_PATH environment override in getFfmpegBinaryPath", () => {
+    process.env.FFMPEG_PATH = " /usr/bin/ffmpeg ";
+    expect(getFfmpegBinaryPath()).toBe("/usr/bin/ffmpeg");
+  });
+});
+
