@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["ffmpeg-static", "ffprobe-static", "fluent-ffmpeg"],
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    cpus: 1,
+  },
   turbopack: {
     rules: {
       "*.css": {
