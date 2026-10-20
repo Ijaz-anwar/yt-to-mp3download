@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["192.168.1.18", "*.lhr.life", "*.loca.lt", "*.trycloudflare.com"],
@@ -7,6 +8,13 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   experimental: {
     cpus: 1,
+  },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@": path.resolve(__dirname, "src"),
+    };
+    return config;
   },
   turbopack: {
     rules: {
