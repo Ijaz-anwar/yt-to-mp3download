@@ -37,18 +37,33 @@ jobs:
           NODE_ENV: production
         run: npm run build -- --webpack
 
+      - name: Inspect build output diagnostics
+        run: |
+          echo "=== Current Working Directory ==="
+          pwd
+          echo "=== Project Root Listing ==="
+          ls -la
+          echo "=== .next Directory Listing ==="
+          ls -la .next
+
       - name: Verify build artifact directory
         run: |
-          if [ ! -d ".next" ] || [ ! -f ".next/BUILD_ID" ]; then
-            echo "::error::Build verification failed: .next directory or .next/BUILD_ID not found."
+          if [ ! -d ".next" ]; then
+            echo "::error::Build directory .next was not created."
             exit 1
           fi
-          echo "Build successful. Generated $(du -sh .next | cut -f1) in .next."
+          if [ ! -f ".next/BUILD_ID" ]; then
+            echo "::error::Build verification failed: .next/BUILD_ID does not exist."
+            exit 1
+          fi
+          echo "Build verification passed: .next/BUILD_ID exists (Build ID: $(cat .next/BUILD_ID))."
+          echo "Total size generated: $(du -sh .next | cut -f1)"
 
       - name: Upload .next production artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-production-build
           path: .next/
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: error
