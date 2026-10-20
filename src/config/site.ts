@@ -1,7 +1,7 @@
 const rawSiteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
-  "https://medianest.app";
+  "https://yt-to-mp3.download";
 
 // Ensure canonical production origin has no trailing slash
 export const CANONICAL_ORIGIN = rawSiteUrl.replace(/\/+$/, "");

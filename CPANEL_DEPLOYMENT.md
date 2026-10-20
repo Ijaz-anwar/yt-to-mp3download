@@ -56,8 +56,9 @@ In the **Setup Node.js App** screen, add the following Environment Variables:
 | :--- | :--- | :--- |
 | `NODE_ENV` | `production` | Runs Next.js in production mode |
 | `NEXT_PUBLIC_APP_NAME` | `MediaNest` | Public brand name |
-| `NEXT_PUBLIC_SITE_URL` | `https://yourdomain.com` | Canonical domain for SEO & sitemap |
-| `NEXT_PUBLIC_APP_URL` | `https://yourdomain.com` | Base application URL |
+| `NEXT_PUBLIC_SITE_URL` | `https://yt-to-mp3.download` | Canonical domain for SEO & sitemap |
+| `NEXT_PUBLIC_APP_URL` | `https://yt-to-mp3.download` | Base application URL |
+| `PORT` | `3000` | Port assigned by cPanel Passenger |
 | `TEMP_MEDIA_DIR` | `./.temp_media` | Writable temporary download directory |
 | `MEDIA_JOB_TTL_MS` | `900000` | 15-minute retention TTL for jobs & files |
 | `MEDIA_CLEANUP_INTERVAL_MINUTES` | `15` | Automatic cleanup interval |
@@ -67,26 +68,23 @@ In the **Setup Node.js App** screen, add the following Environment Variables:
 | `FFMPEG_PATH` | *(Optional, e.g. `/usr/bin/ffmpeg`)* | Overrides `ffmpeg-static` if needed |
 | `FFPROBE_PATH` | *(Optional, e.g. `/usr/bin/ffprobe`)* | Overrides `ffprobe-static` if needed |
 
-### Step 4: Install Dependencies & Build
-Copy the virtual environment activation command shown at the top of **Setup Node.js App** and run it in **cPanel Terminal / SSH**:
-```bash
-source /home/<your_cpanel_user>/nodevenv/yt-downloader/20/bin/activate && cd /home/<your_cpanel_user>/yt-downloader
+### Step 4: Deploy the GitHub Actions Build Artifact (Bypasses cPanel `EAGAIN` Error)
+Because shared cPanel hosting imposes strict process/thread limits (`EAGAIN`), the project uses **GitHub Actions** to build the production bundle automatically on Ubuntu Linux:
 
-# Install all dependencies (including devDependencies needed for TypeScript & Tailwind v4 build)
-npm install --include=dev
-
-# Ensure bundled FFmpeg & FFprobe binaries are executable on Linux
-chmod +x node_modules/ffmpeg-static/ffmpeg || true
-chmod +x node_modules/ffprobe-static/bin/linux/x64/ffprobe || true
-
-# Build the production Next.js bundle
-npm run build
-```
-
-> **Tip for Low-RAM Shared Hosting:** If `npm run build` fails on cPanel due to CloudLinux memory/process limits (`Out of memory` or `EAGAIN`), run `npm run build` on your local machine and upload the generated `.next` folder to `/home/<your_cpanel_user>/yt-downloader/.next`.
+1. Push your code to GitHub (or click **Actions -> Build Production Next.js App -> Run workflow**).
+2. When the workflow completes, download the **`next-production-build`** artifact (zip).
+3. In **cPanel File Manager** or via SSH/SCP:
+   - Extract the downloaded `.next` folder directly into your application root (`/home/<user>/yt-downloader/.next`).
+4. In **cPanel Terminal / SSH**, install production dependencies and set binary permissions:
+   ```bash
+   source /home/<your_cpanel_user>/nodevenv/yt-downloader/22/bin/activate && cd /home/<your_cpanel_user>/yt-downloader
+   npm install --omit=dev
+   chmod +x node_modules/ffmpeg-static/ffmpeg || true
+   chmod +x node_modules/ffprobe-static/bin/linux/x64/ffprobe || true
+   ```
 
 ### Step 5: Start / Restart the Application
 1. Return to **cPanel -> Setup Node.js App** and click **Restart** (or run `mkdir -p tmp && touch tmp/restart.txt` in the application root).
 2. Verify system readiness by opening:
-   `https://yourdomain.com/api/health`
+   `https://yt-to-mp3.download/api/health`
    Confirm `"status": "healthy"`, `"ffmpegAvailable": true`, and `"writeable": true`.
